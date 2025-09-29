@@ -1,0 +1,8 @@
+PyQt6
+pandas
+openpyxl
+python-docx
+python-pptx
+PyMuPDF
+Pillow
+comtypes

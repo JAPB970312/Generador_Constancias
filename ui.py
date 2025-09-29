@@ -1,0 +1,533 @@
+# ui.py
+import sys
+import os
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
+    QFileDialog, QSpinBox, QCheckBox, QProgressBar, QMessageBox, QTextEdit, QComboBox, QFormLayout,
+    QTabWidget, QSlider, QInputDialog, QScrollArea
+)
+from PyQt6.QtGui import QPixmap, QImage, QIcon
+from PyQt6.QtCore import Qt
+from datetime import datetime
+
+# Importaciones de nuestros módulos
+from resource_manager import resource_path
+from data_handler import get_excel_data
+from worker import Worker
+from document_processor import get_processor, PdfProcessor
+
+# Importaciones de las nuevas mejoras
+from validator import DocumentValidator
+from template_library import TemplateLibrary, TemplateCategory
+from performance_optimizer import PerformanceOptimizer
+
+class App(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Generador de Constancias Modular - Mejorado")
+        self.setGeometry(100, 100, 1200, 800)
+        self.setMinimumSize(1100, 700)
+        self.setWindowIcon(QIcon(resource_path('assets/icon.ico')))
+
+        # Estado de la aplicación
+        self.template_path = ""
+        self.excel_data = []
+        self.excel_columns = []
+
+        # Inicializar sistemas mejorados
+        self.validator = DocumentValidator()
+        self.template_library = TemplateLibrary()
+        self.performance_optimizer = PerformanceOptimizer()
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        """Configura la interfaz de usuario completa"""
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # LAYOUT PRINCIPAL VERTICAL - Banner arriba, contenido abajo
+        main_layout = QVBoxLayout(central_widget)
+        
+        # --- BANNER SUPERIOR CENTRADO ---
+        banner_container = QWidget()
+        banner_layout = QVBoxLayout(banner_container)
+        banner_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.banner_label = QLabel()
+        banner_pixmap = QPixmap(resource_path('assets/Banner.png')) 
+        if not banner_pixmap.isNull():
+            banner_pixmap = banner_pixmap.scaledToWidth(1000, Qt.TransformationMode.SmoothTransformation)
+            self.banner_label.setPixmap(banner_pixmap)
+        else:
+            self.banner_label.setText("Banner no encontrado")
+            self.banner_label.setStyleSheet("color: red; font-weight: bold; padding: 20px;")
+        
+        self.banner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.banner_label.setStyleSheet("margin-bottom: 0px; padding: 0px;")
+        
+        banner_layout.addWidget(self.banner_label)
+        main_layout.addWidget(banner_container)
+        
+        # --- CONTENIDO PRINCIPAL (Panel izquierdo + derecho) ---
+        content_widget = QWidget()
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 0, 10, 10)
+        
+        # --- PANEL DE CONTROL (Izquierda) ---
+        control_scroll = QScrollArea()
+        control_scroll.setWidgetResizable(True)
+        control_scroll.setMaximumWidth(500)
+        control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+        control_widget = QWidget()
+        control_panel = QVBoxLayout(control_widget)
+        control_scroll.setWidget(control_widget)
+
+        # 1. Plantillas Predefinidas
+        control_panel.addWidget(self._create_section_label("🎨 Plantillas Predefinidas"))
+        self.template_preset_combo = QComboBox()
+        self.template_preset_combo.setMinimumHeight(30)
+        self.load_template_presets()
+        self.template_preset_combo.currentTextChanged.connect(self.apply_template_preset)
+        control_panel.addWidget(self.template_preset_combo)
+
+        # 2. Plantilla
+        control_panel.addWidget(self._create_section_label("📄 Cargar Plantilla"))
+        self.btn_load_template = QPushButton("Seleccionar Plantilla (.pdf, .docx, .pptx)")
+        self.btn_load_template.setMinimumHeight(35)
+        self.btn_load_template.clicked.connect(self.load_template)
+        self.lbl_template_path = QLabel("Ningún archivo seleccionado.")
+        self.lbl_template_path.setWordWrap(True)
+        self.lbl_template_path.setStyleSheet("padding: 5px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;")
+        control_panel.addWidget(self.btn_load_template)
+        control_panel.addWidget(self.lbl_template_path)
+
+        # 3. Excel
+        control_panel.addWidget(self._create_section_label("📊 Cargar Participantes"))
+        self.btn_load_excel = QPushButton("Seleccionar Excel (.xlsx)")
+        self.btn_load_excel.setMinimumHeight(35)
+        self.btn_load_excel.clicked.connect(self.load_excel)
+        self.lbl_excel_path = QLabel("Ningún archivo seleccionado.")
+        self.lbl_excel_path.setWordWrap(True)
+        self.lbl_excel_path.setStyleSheet("padding: 5px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px;")
+        control_panel.addWidget(self.btn_load_excel)
+        control_panel.addWidget(self.lbl_excel_path)
+        
+        # 4. Mapeo de Columnas
+        control_panel.addWidget(self._create_section_label("🔗 Asignar Columnas"))
+        form_layout = QFormLayout()
+        self.combo_text1 = QComboBox()
+        self.combo_text2 = QComboBox()
+        self.combo_text1.setEnabled(False)
+        self.combo_text2.setEnabled(False)
+        self.combo_text1.setMinimumHeight(30)
+        self.combo_text2.setMinimumHeight(30)
+        form_layout.addRow("{{TEXT_1}} (Nombre):", self.combo_text1)
+        form_layout.addRow("{{TEXT_2}} (Título/Evento):", self.combo_text2)
+        
+        self.combo_filename = QComboBox()
+        self.combo_filename.setEnabled(False)
+        self.combo_filename.setMinimumHeight(30)
+        form_layout.addRow("Columna para nombre de archivo:", self.combo_filename)
+        control_panel.addLayout(form_layout)
+
+        # 5. Estilo de Fuente - CONTROLES INDEPENDIENTES
+        control_panel.addWidget(self._create_section_label("🎯 Estilo de Texto"))
+        
+        # TEXT_1 (Nombre) - CONFIGURACIÓN INDEPENDIENTE
+        control_panel.addWidget(QLabel("{{TEXT_1}} (Nombre):"))
+        name_style_layout = QHBoxLayout()
+        
+        self.font_combo_1 = self._get_font_combo()
+        self.font_size_spin_1 = QSpinBox()
+        self.font_size_spin_1.setRange(8, 72)
+        self.font_size_spin_1.setValue(24)
+        self.font_size_spin_1.setMinimumHeight(30)
+        self.bold_check_1 = QCheckBox("Negrita")
+        self.bold_check_1.setChecked(True)
+        
+        name_style_layout.addWidget(QLabel("Fuente:"))
+        name_style_layout.addWidget(self.font_combo_1)
+        name_style_layout.addWidget(QLabel("Tamaño:"))
+        name_style_layout.addWidget(self.font_size_spin_1)
+        name_style_layout.addWidget(self.bold_check_1)
+        control_panel.addLayout(name_style_layout)
+        
+        # TEXT_2 (Título) - CONFIGURACIÓN INDEPENDIENTE
+        control_panel.addWidget(QLabel("{{TEXT_2}} (Título/Evento):"))
+        title_style_layout = QHBoxLayout()
+        
+        self.font_combo_2 = self._get_font_combo()
+        self.font_size_spin_2 = QSpinBox()
+        self.font_size_spin_2.setRange(8, 72)
+        self.font_size_spin_2.setValue(18)
+        self.font_size_spin_2.setMinimumHeight(30)
+        self.bold_check_2 = QCheckBox("Negrita")
+        
+        title_style_layout.addWidget(QLabel("Fuente:"))
+        title_style_layout.addWidget(self.font_combo_2)
+        title_style_layout.addWidget(QLabel("Tamaño:"))
+        title_style_layout.addWidget(self.font_size_spin_2)
+        title_style_layout.addWidget(self.bold_check_2)
+        control_panel.addLayout(title_style_layout)
+
+        # Conectar eventos de estilo
+        self.font_combo_1.currentTextChanged.connect(self.update_preview)
+        self.font_size_spin_1.valueChanged.connect(self.update_preview)
+        self.bold_check_1.stateChanged.connect(self.update_preview)
+        self.font_combo_2.currentTextChanged.connect(self.update_preview)
+        self.font_size_spin_2.valueChanged.connect(self.update_preview)
+        self.bold_check_2.stateChanged.connect(self.update_preview)
+
+        # 6. Validación
+        control_panel.addWidget(self._create_section_label("✅ Validación"))
+        self.btn_validate = QPushButton("🔍 Validar Configuración")
+        self.btn_validate.setMinimumHeight(35)
+        self.btn_validate.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold;")
+        self.btn_validate.clicked.connect(self.validate_configuration)
+        self.validation_label = QLabel("Estado: Sin validar")
+        self.validation_label.setWordWrap(True)
+        self.validation_label.setMinimumHeight(60)
+        self.validation_label.setStyleSheet("padding: 8px; border: 1px solid #ccc; border-radius: 4px; background-color: #f8f9fa; font-size: 10pt;")
+        control_panel.addWidget(self.btn_validate)
+        control_panel.addWidget(self.validation_label)
+
+        # 7. Exportación
+        control_panel.addWidget(self._create_section_label("⚙️ Configuración"))
+        self.export_mode_combo = QComboBox()
+        self.export_mode_combo.addItems(["Individual", "Un solo PDF combinado"])
+        self.export_mode_combo.setMinimumHeight(30)
+        control_panel.addWidget(QLabel("Modo de exportación:"))
+        control_panel.addWidget(self.export_mode_combo)
+
+        # 8. Acciones
+        control_panel.addWidget(self._create_section_label("🚀 Acciones"))
+        self.btn_generate = QPushButton("🚀 Generar Constancias")
+        self.btn_generate.setMinimumHeight(45)
+        self.btn_generate.setStyleSheet("background-color: #28a745; color: white; font-size: 14pt; font-weight: bold; border-radius: 6px;")
+        self.btn_generate.clicked.connect(self.start_generation)
+        self.btn_cancel = QPushButton("⏹️ Cancelar")
+        self.btn_cancel.setMinimumHeight(35)
+        self.btn_cancel.setEnabled(False)
+        self.btn_cancel.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold; border-radius: 6px;")
+        self.btn_cancel.clicked.connect(self.cancel_generation)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimumHeight(20)
+        control_panel.addWidget(self.btn_generate)
+        control_panel.addWidget(self.btn_cancel)
+        control_panel.addWidget(self.progress_bar)
+
+        control_panel.addStretch()
+
+        # --- PANEL DE PREVISUALIZACIÓN (Derecha) ---
+        preview_tab = QTabWidget()
+        preview_tab.setMinimumWidth(600)
+
+        # Pestaña de Previsualización
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_layout.addWidget(QLabel("👁️ Previsualización en Tiempo Real"))
+        self.preview_label = QLabel("Cargue una plantilla PDF para ver la previsualización.")
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview_label.setMinimumHeight(400)
+        self.preview_label.setStyleSheet("border: 2px solid #ccc; background-color: #f8f9fa; border-radius: 8px; padding: 20px; font-size: 11pt;")
+        preview_layout.addWidget(self.preview_label, 1)
+
+        # Pestaña de Log
+        log_widget = QWidget()
+        log_layout = QVBoxLayout(log_widget)
+        log_layout.addWidget(QLabel("📝 Registro de Actividad"))
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setStyleSheet("font-family: 'Consolas', 'Monaco', monospace; font-size: 10pt;")
+        log_layout.addWidget(self.log_box)
+
+        preview_tab.addTab(preview_widget, "👁️ Previsualización")
+        preview_tab.addTab(log_widget, "📝 Registro")
+
+        # Añadir paneles al contenido principal
+        content_layout.addWidget(control_scroll, 1)
+        content_layout.addWidget(preview_tab, 2)
+        
+        # Añadir contenido al layout principal
+        main_layout.addWidget(content_widget, 1)
+
+    def _create_section_label(self, text):
+        label = QLabel(text)
+        label.setStyleSheet("font-weight: bold; margin-top: 15px; margin-bottom: 8px; font-size: 12pt; color: #2c3e50;")
+        return label
+    
+    def _get_font_combo(self):
+        combo = QComboBox()
+        combo.setMinimumHeight(30)
+        fonts_dir = resource_path(os.path.join('assets', 'fonts'))
+        if os.path.exists(fonts_dir):
+            fonts = [os.path.splitext(f)[0] for f in os.listdir(fonts_dir) if f.lower().endswith(('.ttf', '.otf'))]
+            if fonts:
+                combo.addItems(sorted(fonts))
+            else:
+                combo.addItems(["Arial", "Times New Roman", "Courier New", "Georgia", "Verdana"])
+        else:
+            combo.addItems(["Arial", "Times New Roman", "Courier New", "Georgia", "Verdana"])
+        return combo
+
+    def load_template_presets(self):
+        self.template_preset_combo.clear()
+        self.template_preset_combo.addItem("-- Seleccionar plantilla predefinida --", None)
+        for preset in self.template_library.get_all_presets():
+            self.template_preset_combo.addItem(f"🎓 {preset.name}", preset.id)
+        self.template_preset_combo.addItem("-- Guardar configuración actual --", "save_current")
+
+    def apply_template_preset(self):
+        preset_id = self.template_preset_combo.currentData()
+        if not preset_id or preset_id == "save_current":
+            return
+        preset = self.template_library.get_preset(preset_id)
+        if preset:
+            for placeholder, font_config in preset.recommended_fonts.items():
+                if placeholder == 'NOMBRE':
+                    self.font_combo_1.setCurrentText(font_config['family'])
+                    self.font_size_spin_1.setValue(font_config.get('size', 24))
+                    self.bold_check_1.setChecked(font_config.get('bold', False))
+                elif placeholder in ['CURSO', 'EVENTO']:
+                    self.font_combo_2.setCurrentText(font_config['family'])
+                    self.font_size_spin_2.setValue(font_config.get('size', 18))
+                    self.bold_check_2.setChecked(font_config.get('bold', False))
+            self.log_message(f"✅ Plantilla '{preset.name}' aplicada")
+            self.update_preview()
+
+    def load_template(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Seleccionar Plantilla", "", 
+            "Archivos Soportados (*.pdf *.docx *.pptx);;PDF (*.pdf);;Word (*.docx);;PowerPoint (*.pptx)"
+        )
+        if path:
+            self.template_path = path
+            self.lbl_template_path.setText(os.path.basename(path))
+            self.log_message(f"📄 Plantilla cargada: {os.path.basename(path)}")
+            self.update_preview()
+
+    def load_excel(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Seleccionar Archivo Excel", "", "Excel (*.xlsx *.xls);;Todos los archivos (*)"
+        )
+        if path:
+            try:
+                self.excel_columns, self.excel_data = get_excel_data(path)
+                self.lbl_excel_path.setText(os.path.basename(path))
+                self.combo_text1.clear()
+                self.combo_text2.clear()
+                self.combo_text1.addItems(self.excel_columns)
+                self.combo_text2.addItems(self.excel_columns)
+                self.combo_text1.setEnabled(True)
+                self.combo_text2.setEnabled(True)
+                self.log_message(f"📊 Lista cargada con {len(self.excel_data)} registros.")
+                self.log_message(f"📋 Columnas detectadas: {', '.join(self.excel_columns)}")
+            
+                # Actualizar selector de columna para nombre de archivo
+                self.combo_filename.clear()
+                self.combo_filename.addItems(self.excel_columns)
+                self.combo_filename.setEnabled(True)
+                try:
+                    # Por defecto seleccionar la misma columna que TEXT_1 si existe
+                    self.combo_filename.setCurrentIndex(self.combo_text1.currentIndex())
+                except:
+                    pass
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error al cargar Excel: {str(e)}")
+                self.log_message(f"❌ Error: {e}")
+
+    def _get_font_info(self, index):
+        if index == 1:
+            return {
+                'family': self.font_combo_1.currentText(),
+                'size': self.font_size_spin_1.value(),
+                'bold': self.bold_check_1.isChecked(),
+            }
+        elif index == 2:
+            return {
+                'family': self.font_combo_2.currentText(),
+                'size': self.font_size_spin_2.value(),
+                'bold': self.bold_check_2.isChecked(),
+            }
+        return {'family': 'Arial', 'size': 12, 'bold': False}
+
+    def _get_font_map(self):
+        return {
+            "{{TEXT_1}}": self._get_font_info(1),
+            "{{TEXT_2}}": self._get_font_info(2)
+        }
+
+    def update_preview(self):
+        if not self.template_path or not self.template_path.lower().endswith('.pdf'):
+            if self.template_path:
+                self.preview_label.setText("La previsualización en tiempo real solo está disponible para plantillas PDF.\n\nPara DOCX/PPTX, use la validación para verificar la configuración.")
+            else:
+                self.preview_label.setText("Cargue una plantilla PDF para ver la previsualización.")
+            return
+
+        try:
+            processor = get_processor(self.template_path)
+            if not isinstance(processor, PdfProcessor):
+                return
+
+            font_map = self._get_font_map()
+            data_map = {
+                "{{TEXT_1}}": "María González López",
+                "{{TEXT_2}}": "PROYECTO: Desarrollo Sostenible"
+            }
+            
+            pix_data = processor.get_preview_pixmap(data_map, font_map)
+            if pix_data:
+                img = QImage(pix_data.samples, pix_data.width, pix_data.height, 
+                           pix_data.stride, QImage.Format.Format_RGB888)
+                pixmap = QPixmap.fromImage(img)
+                scaled_pixmap = pixmap.scaled(
+                    self.preview_label.width() - 40, 
+                    self.preview_label.height() - 40,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                self.preview_label.setPixmap(scaled_pixmap)
+        except Exception as e:
+            self.preview_label.setText(f"Error en previsualización:\n{str(e)}")
+
+    def validate_configuration(self):
+        self.validation_label.setText("🔄 Validando configuración...")
+        self.validation_label.setStyleSheet("padding: 8px; border: 1px solid #FFEAA7; border-radius: 4px; background-color: #FFF3CD; color: #856404;")
+        
+        validation_results = []
+        
+        # Validar plantilla
+        if self.template_path:
+            template_validation = self.validator.validate_template(self.template_path)
+            if template_validation['is_valid']:
+                validation_results.append("✅ Plantilla válida")
+                if template_validation['placeholders_found']:
+                    validation_results.append(f"📝 Placeholders: {', '.join(template_validation['placeholders_found'])}")
+            else:
+                validation_results.append("❌ Plantilla inválida")
+                for error in template_validation['errors']:
+                    validation_results.append(f"   • {error}")
+        else:
+            validation_results.append("❌ No hay plantilla cargada")
+    
+        # Validar datos Excel
+        if hasattr(self, 'excel_data') and self.excel_data:
+            validation_results.append(f"✅ Excel válido ({len(self.excel_data)} registros)")
+            validation_results.append(f"📋 Columnas: {', '.join(self.excel_columns)}")
+        else:
+            validation_results.append("❌ No hay datos de Excel cargados")
+        
+        # Validar mapeo
+        if self.combo_text1.currentText() and self.combo_text2.currentText():
+            validation_results.append("✅ Mapeo de columnas configurado")
+        else:
+            validation_results.append("❌ Mapeo de columnas incompleto")
+        
+        # Validar fuentes
+        available_fonts = [self.font_combo_1.itemText(i) for i in range(self.font_combo_1.count())]
+        font_validation = self.validator.validate_fonts(self._get_font_map(), available_fonts)
+        if font_validation['is_valid']:
+            validation_results.append("✅ Fuentes disponibles")
+        else:
+            validation_results.append("⚠️ Problemas con fuentes")
+            for warning in font_validation['warnings']:
+                validation_results.append(f"   • {warning}")
+        
+        # Mostrar resultados
+        result_text = "\n".join(validation_results)
+        has_errors = any("❌" in result for result in validation_results)
+        
+        if not has_errors:
+            self.validation_label.setStyleSheet("padding: 8px; border: 1px solid #C3E6CB; border-radius: 4px; background-color: #D4EDDA; color: #155724;")
+            self.validation_label.setText("✅ Configuración válida\n" + result_text)
+        else:
+            self.validation_label.setStyleSheet("padding: 8px; border: 1px solid #F5C6CB; border-radius: 4px; background-color: #F8D7DA; color: #721c24;")
+            self.validation_label.setText("❌ Problemas encontrados\n" + result_text)
+        
+        self.log_message("🔍 Validación completada")
+
+    def start_generation(self):
+        if not self.template_path:
+            QMessageBox.warning(self, "Archivos Faltantes", "Seleccione una plantilla primero.")
+            return
+        
+        if not hasattr(self, 'excel_data') or not self.excel_data:
+            QMessageBox.warning(self, "Archivos Faltantes", "Cargue un archivo Excel primero.")
+            return
+        
+        if not self.combo_text1.currentText() or not self.combo_text2.currentText():
+            QMessageBox.warning(self, "Configuración Incompleta", "Seleccione las columnas para ambos placeholders.")
+            return
+        
+        output_dir = QFileDialog.getExistingDirectory(self, "Seleccionar Carpeta de Destino")
+        if not output_dir:
+            return
+
+        self.performance_optimizer.optimize_memory()
+
+        font_map = self._get_font_map()
+        placeholder_map = {
+            "{{TEXT_1}}": self.combo_text1.currentText(),
+            "{{TEXT_2}}": self.combo_text2.currentText()
+        }
+        export_mode = self.export_mode_combo.currentText()
+        # Columna seleccionada para nombrar archivos (si está habilitada)
+        filename_column = self.combo_filename.currentText() if getattr(self, 'combo_filename', None) and self.combo_filename.isEnabled() else None
+
+        self.btn_generate.setEnabled(False)
+        self.btn_cancel.setEnabled(True)
+        self.progress_bar.setValue(0)
+
+        self.worker = Worker(self.template_path, self.excel_data, output_dir, font_map, placeholder_map, export_mode, filename_column)
+
+        
+        self.worker.progress.connect(self.progress_bar.setValue)
+        self.worker.log.connect(self.log_message)
+        self.worker.finished.connect(self.on_generation_finished)
+        self.worker.start()
+        self.log_message("🚀 Iniciando generación de constancias...")
+
+
+    def cancel_generation(self):
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.worker.stop()
+            self.log_message("⏹️ Enviando señal de cancelación...")
+            self.btn_cancel.setEnabled(False)
+
+    def on_generation_finished(self, message):
+        self.btn_generate.setEnabled(True)
+        self.btn_cancel.setEnabled(False)
+        if "error" in message.lower():
+            QMessageBox.critical(self, "Error", message)
+            self.log_message(f"❌ {message}")
+        else:
+            QMessageBox.information(self, "Proceso Finalizado", message)
+            self.log_message(f"🎉 {message}")
+        self.performance_optimizer.optimize_memory()
+
+    def log_message(self, message):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_box.append(f"[{timestamp}] {message}")
+        self.log_box.verticalScrollBar().setValue(self.log_box.verticalScrollBar().maximum())
+
+    def resizeEvent(self, event):
+        """Redimensiona el banner cuando cambia el tamaño de la ventana"""
+        super().resizeEvent(event)
+        # Actualizar banner al nuevo tamaño
+        banner_pixmap = QPixmap(resource_path('assets/Banner.png'))
+        if not banner_pixmap.isNull():
+            # Escalar al 90% del ancho de la ventana
+            new_width = int(self.width() * 0.9)
+            scaled_pixmap = banner_pixmap.scaledToWidth(new_width, Qt.TransformationMode.SmoothTransformation)
+            self.banner_label.setPixmap(scaled_pixmap)
+        
+        self.update_preview()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = App()
+    window.show()
+    sys.exit(app.exec())

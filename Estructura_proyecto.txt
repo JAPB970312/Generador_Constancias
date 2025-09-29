@@ -1,0 +1,19 @@
+GeneradorConstanciasV2.0_DeepSeek/
+├── main.py
+├── ui.py
+├── worker.py
+├── document_processor.py
+├── data_handler.py
+├── resource_manager.py
+├── office_processor_task.py
+├── validator.py
+├── template_library.py
+├── performance_optimizer.py
+├── requirements.txt
+└── assets/
+    ├── Banner.png
+    ├── icon.ico
+    └── fonts/
+        ├── Arial.ttf
+        ├── Times New Roman.ttf
+        └── (otras fuentes)
